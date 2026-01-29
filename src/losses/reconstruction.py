@@ -233,6 +233,99 @@ class CombinedLoss(LossFunction):
         return total_loss, all_metrics
 
 
+class IndependenceLoss(LossFunction):
+    """
+    Encourages cluster assignments in subspace A to be independent of assignments in subspace B.
+
+    This is what makes the TRUE subspace special: in the correct decomposition,
+    knowing a point's A-cluster tells you nothing about its B-cluster.
+
+    Uses mutual information approximation via correlation of soft assignments.
+    """
+
+    def __init__(self, weight: float = 1.0):
+        super().__init__()
+        self.weight = weight
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        model: nn.Module,
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        _, _, assignments_a, assignments_b = model.forward(x)
+
+        # Compute correlation between assignment distributions
+        # If independent, correlation should be zero
+
+        # Center the assignments
+        a_centered = assignments_a - assignments_a.mean(dim=0, keepdim=True)
+        b_centered = assignments_b - assignments_b.mean(dim=0, keepdim=True)
+
+        # Cross-correlation matrix between A and B assignments
+        # Shape: (n_clusters_a, n_clusters_b)
+        cross_corr = (a_centered.T @ b_centered) / (x.shape[0] - 1)
+
+        # Penalize correlation (want it to be zero for independence)
+        # Using Frobenius norm of cross-correlation
+        independence_violation = (cross_corr ** 2).sum()
+
+        loss = self.weight * independence_violation
+
+        metrics = {
+            "independence_violation": independence_violation.detach(),
+            "cross_corr_max": cross_corr.abs().max().detach(),
+        }
+
+        return loss, metrics
+
+
+class SeparationLoss(LossFunction):
+    """
+    Encourages cluster centroids to be well-separated within each subspace.
+
+    Maximizes minimum distance between centroids (or penalizes small distances).
+    """
+
+    def __init__(self, margin: float = 0.5, weight: float = 1.0):
+        super().__init__()
+        self.margin = margin
+        self.weight = weight
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        model: nn.Module,
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        centroids_a = model.clusterer_a.get_centroids()
+        centroids_b = model.clusterer_b.get_centroids()
+
+        def pairwise_separation_loss(centroids):
+            # Compute pairwise distances
+            n = centroids.shape[0]
+            diff = centroids.unsqueeze(0) - centroids.unsqueeze(1)  # (n, n, d)
+            dists = (diff ** 2).sum(dim=2).sqrt()  # (n, n)
+
+            # Mask diagonal
+            mask = 1 - torch.eye(n, device=centroids.device)
+            dists = dists * mask
+
+            # Penalize distances below margin (hinge loss style)
+            violations = F.relu(self.margin - dists) * mask
+            return violations.sum() / (n * (n - 1))
+
+        loss_a = pairwise_separation_loss(centroids_a)
+        loss_b = pairwise_separation_loss(centroids_b)
+
+        loss = self.weight * (loss_a + loss_b)
+
+        metrics = {
+            "separation_loss_a": loss_a.detach(),
+            "separation_loss_b": loss_b.detach(),
+        }
+
+        return loss, metrics
+
+
 def get_loss_function(
     name: str,
     **kwargs,
@@ -243,6 +336,8 @@ def get_loss_function(
         "subspace_reconstruction": SubspaceReconstructionLoss,
         "compactness": ClusterCompactnessLoss,
         "entropy": EntropyRegularization,
+        "independence": IndependenceLoss,
+        "separation": SeparationLoss,
     }
 
     if name not in losses:

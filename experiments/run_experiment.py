@@ -29,7 +29,11 @@ from src.utils import Trainer, TrainingConfig
 def setup_device(device_config: str) -> str:
     """Determine device to use."""
     if device_config == "auto":
-        return "cuda" if torch.cuda.is_available() else "cpu"
+        if torch.backends.mps.is_available():
+            return "mps"
+        elif torch.cuda.is_available():
+            return "cuda"
+        return "cpu"
     return device_config
 
 

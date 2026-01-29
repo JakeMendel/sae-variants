@@ -5,10 +5,19 @@ Training utilities for subspace discovery experiments.
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, field
 from typing import Optional, Dict, List, Callable
 from tqdm import tqdm
 import geoopt
+
+
+def get_best_device() -> str:
+    """Get the best available device (MPS for Apple Silicon, CUDA, or CPU)."""
+    if torch.backends.mps.is_available():
+        return "mps"
+    elif torch.cuda.is_available():
+        return "cuda"
+    return "cpu"
 
 
 @dataclass
@@ -30,7 +39,7 @@ class TrainingConfig:
     eval_interval: int = 10
 
     # Device
-    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    device: str = field(default_factory=get_best_device)
 
 
 class Trainer:
@@ -134,9 +143,12 @@ class Trainer:
             if self.optimizer_euclidean:
                 self.optimizer_euclidean.step()
 
-            # Accumulate metrics
+            # Accumulate metrics (only scalars)
             total_loss += loss.item()
             for k, v in metrics.items():
+                # Skip non-scalar metrics
+                if torch.is_tensor(v) and v.numel() > 1:
+                    continue
                 if k not in all_metrics:
                     all_metrics[k] = 0.0
                 all_metrics[k] += v.item() if torch.is_tensor(v) else v
