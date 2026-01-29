@@ -1,0 +1,72 @@
+# Default configuration for multi-cluster subspace discovery experiments
+
+# Data generation
+data:
+  d: 64  # Total embedding dimension
+  n_clusters_a: 50  # Number of type-A clusters (can exceed d/2)
+  n_clusters_b: 50  # Number of type-B clusters (can exceed d/2)
+  n_samples: 10000  # Total number of data points
+  noise_std: 0.1  # Gaussian noise standard deviation
+  centroid_scale: 1.0  # Scale of cluster centroids
+  apply_rotation: true  # Apply random rotation to make problem harder
+  seed: 42
+
+# Model architecture
+model:
+  # Clustering algorithm: "soft_kmeans", "gmm", "auto_discovery"
+  clustering_algorithm: soft_kmeans
+
+  # Clustering-specific kwargs
+  clustering_kwargs:
+    temperature: 1.0
+    learn_temperature: false
+    init_scale: 1.0
+
+  # Subspace initialization: "identity", "random"
+  subspace_init: random
+
+  # Whether number of clusters is known or discovered
+  # If true, uses n_clusters_a/b from data config
+  # If false, uses max_clusters and auto_discovery algorithm
+  known_n_clusters: true
+  max_clusters: 100  # Used when known_n_clusters=false
+
+# Loss function
+loss:
+  # Primary loss: "reconstruction", "subspace_reconstruction", "compactness"
+  primary: reconstruction
+
+  # Optional regularization losses with weights
+  regularization:
+    entropy:
+      enabled: false
+      weight: 0.01
+      target: low  # "low" for confident assignments, "high" for soft
+
+# Training
+training:
+  lr: 1e-3
+  lr_subspace: 1e-2  # Learning rate for Stiefel manifold parameters
+  weight_decay: 0.0
+  batch_size: 256
+  n_epochs: 100
+
+  # Learning rate schedule: "cosine", "step", "none"
+  scheduler: cosine
+  warmup_epochs: 5
+
+  # Logging
+  log_interval: 10
+  eval_interval: 10
+
+# Experiment
+experiment:
+  name: default
+  seed: 42
+  device: auto  # "auto", "cuda", "cpu"
+
+# Weights & Biases logging (optional)
+wandb:
+  enabled: false
+  project: sae-variants
+  entity: null
